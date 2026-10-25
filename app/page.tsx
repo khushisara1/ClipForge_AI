@@ -1,69 +1,259 @@
-import Image from "next/image";
+"use client";
+
+import React, { useState, useEffect, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { Navbar } from "@/components/Navbar";
+import { HealthModal } from "@/components/HealthModal";
+import { LandingSection } from "@/components/LandingSection";
+import { DashboardView } from "@/components/DashboardView";
+import { UploadView } from "@/components/UploadView";
+import { ProcessingView } from "@/components/ProcessingView";
+import { ClipEditorView } from "@/components/ClipEditorView";
+import { Project } from "@/types";
+
+function PodcastApp() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const urlProjectId = searchParams.get("project");
+  const urlView = searchParams.get("view") as
+    | "landing"
+    | "dashboard"
+    | "upload"
+    | "processing"
+    | "editor"
+    | null;
+
+  const [currentView, setCurrentView] = useState<
+    "landing" | "dashboard" | "upload" | "processing" | "editor"
+  >(urlView || (urlProjectId ? "processing" : "landing"));
+
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(
+    urlProjectId
+  );
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [isGroqConfigured, setIsGroqConfigured] = useState(false);
+  const [isHealthModalOpen, setIsHealthModalOpen] = useState(false);
+
+  // Sync project status asynchronously if opened via URL without explicit view
+  useEffect(() => {
+    if (urlProjectId && !urlView) {
+      let cancelled = false;
+      fetch(`/api/projects/${urlProjectId}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!cancelled && data?.project) {
+            if (data.project.status === "ready") {
+              setCurrentView("editor");
+            } else {
+              setCurrentView("processing");
+            }
+          }
+        })
+        .catch(() => {});
+
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [urlProjectId, urlView]);
+
+  // Fetch health and config
+  const refreshHealth = () => {
+    fetch("/api/health")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.ai) setIsGroqConfigured(Boolean(data.ai.groqConfigured));
+      })
+      .catch(() => {});
+  };
+
+  // Fetch projects list
+  const fetchProjects = () => {
+    setLoadingProjects(true);
+    fetch("/api/projects")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.projects) setProjects(data.projects);
+      })
+      .catch((err) => console.error("Failed to load projects:", err))
+      .finally(() => setLoadingProjects(false));
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/health")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.ai) {
+          setIsGroqConfigured(Boolean(data.ai.groqConfigured));
+        }
+      })
+      .catch(() => {});
+
+    fetch("/api/projects")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.projects) {
+          setProjects(data.projects);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const navigateTo = (view: "landing" | "dashboard" | "upload") => {
+    setCurrentView(view);
+    if (view === "landing" || view === "dashboard" || view === "upload") {
+      setActiveProjectId(null);
+      router.push(`/?view=${view}`);
+    }
+    if (view === "dashboard") {
+      fetchProjects();
+    }
+  };
+
+  const handleSelectProject = (projectId: string) => {
+    setActiveProjectId(projectId);
+    const p = projects.find((item) => item.id === projectId);
+    if (p && p.status === "ready") {
+      setCurrentView("editor");
+      router.push(`/?project=${projectId}&view=editor`);
+    } else {
+      setCurrentView("processing");
+      router.push(`/?project=${projectId}&view=processing`);
+    }
+  };
+
+  const handleUploadSuccess = (project: Project) => {
+    setProjects((prev) => [project, ...prev]);
+    setActiveProjectId(project.id);
+    setCurrentView("processing");
+    router.push(`/?project=${project.id}&view=processing`);
+  };
+
+  const handleDeleteProject = async (projectId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setProjects((prev) => prev.filter((p) => p.id !== projectId));
+        if (activeProjectId === projectId) {
+          navigateTo("dashboard");
+        }
+      }
+    } catch (err) {
+      console.error("Failed to delete project:", err);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#0b0d12] text-white flex flex-col justify-between selection:bg-violet-500 selection:text-white">
+      <div>
+        {/* Navigation Bar */}
+        <Navbar
+          currentView={currentView}
+          onNavigate={navigateTo}
+          onOpenSettings={() => setIsHealthModalOpen(true)}
+          isGroqConfigured={isGroqConfigured}
+        />
+
+        {/* View Router */}
+        {currentView === "landing" && (
+          <LandingSection
+            onStartCreating={() => navigateTo("upload")}
+            onOpenDashboard={() => navigateTo("dashboard")}
+            projectCount={projects.length}
+          />
+        )}
+
+        {currentView === "dashboard" && (
+          <DashboardView
+            projects={projects}
+            loading={loadingProjects}
+            onSelectProject={handleSelectProject}
+            onNewUpload={() => navigateTo("upload")}
+            onDeleteProject={handleDeleteProject}
+            onRefresh={fetchProjects}
+          />
+        )}
+
+        {currentView === "upload" && (
+          <UploadView
+            onUploadSuccess={handleUploadSuccess}
+            onCancel={() =>
+              navigateTo(projects.length > 0 ? "dashboard" : "landing")
+            }
+          />
+        )}
+
+        {currentView === "processing" && activeProjectId && (
+          <ProcessingView
+            projectId={activeProjectId}
+            onComplete={() => {
+              setCurrentView("editor");
+              router.push(`/?project=${activeProjectId}&view=editor`);
+              fetchProjects();
+            }}
+            onOpenSettings={() => setIsHealthModalOpen(true)}
+          />
+        )}
+
+        {currentView === "editor" && activeProjectId && (
+          <ClipEditorView
+            projectId={activeProjectId}
+            onBackToDashboard={() => navigateTo("dashboard")}
+          />
+        )}
+      </div>
+
+      {/* Diagnostics / Settings Modal */}
+      <HealthModal
+        isOpen={isHealthModalOpen}
+        onClose={() => setIsHealthModalOpen(false)}
+        onRefreshHealth={refreshHealth}
+      />
+
+      {/* Universal Footer */}
+      <footer className="border-t border-white/10 py-6 text-center text-xs text-gray-500">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-4 sm:flex-row sm:px-6">
+          <p>ClipForge AI &middot; Automated Podcast-to-Clips Production Platform</p>
+          <div className="flex items-center gap-4 text-gray-400">
+            <button
+              onClick={() => setIsHealthModalOpen(true)}
+              className="hover:text-white transition-colors"
+            >
+              System Diagnostics
+            </button>
+            <span>&middot;</span>
+            <button
+              onClick={() => navigateTo("dashboard")}
+              className="hover:text-white transition-colors"
+            >
+              Dashboard
+            </button>
+          </div>
+        </div>
+      </footer>
+    </main>
+  );
+}
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#0b0d12] flex items-center justify-center text-violet-400">
+          Loading ClipForge AI...
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      }
+    >
+      <PodcastApp />
+    </Suspense>
   );
 }
