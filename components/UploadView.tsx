@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   UploadCloud,
   FileVideo,
@@ -29,14 +29,26 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const [title, setTitle] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [maxUploadMb, setMaxUploadMb] = useState(MAX_MB);
   const [isUploading, setIsUploading] = useState(false);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+
+  useEffect(() => {
+    fetch("/api/health")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (Number.isFinite(data?.storage?.maxUploadMb) && data.storage.maxUploadMb > 0) {
+          setMaxUploadMb(data.storage.maxUploadMb);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const validateAndSetFile = (file: File) => {
     setErrorMessage(null);
     const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
 
-    if (!ALLOWED_EXTS.includes(ext) && !file.type.startsWith("video/")) {
+    if (!ALLOWED_EXTS.includes(ext)) {
       setErrorMessage(
         `Unsupported file type. Please upload a video file (${ALLOWED_EXTS.join(
           ", "
@@ -45,8 +57,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
       return;
     }
 
-    if (file.size > MAX_MB * 1024 * 1024) {
-      setErrorMessage(`File exceeds maximum size of ${MAX_MB}MB.`);
+    if (file.size > maxUploadMb * 1024 * 1024) {
+      setErrorMessage(`File exceeds the configured maximum size of ${maxUploadMb}MB.`);
       return;
     }
 
@@ -160,6 +172,15 @@ export const UploadView: React.FC<UploadViewProps> = ({
             onDragOver={handleDrag}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="Choose a podcast video file or drag it here"
             className={`flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-10 text-center cursor-pointer transition-all ${
               dragActive
                 ? "border-violet-500 bg-violet-600/10 scale-[1.01]"
@@ -180,7 +201,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
             <div className="mt-5 inline-flex items-center gap-2 rounded-lg bg-white/5 px-3 py-1.5 text-xs text-gray-400">
               <span>MP4, MOV, WebM, MKV</span>
               <span>&middot;</span>
-              <span>Max {MAX_MB}MB</span>
+              <span>Max {maxUploadMb}MB</span>
             </div>
 
             <input
@@ -296,6 +317,20 @@ export const UploadView: React.FC<UploadViewProps> = ({
           </div>
         )}
       </div>
+
+      <section aria-label="What happens next" className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          ["01", "Transcribe audio"],
+          ["02", "Find meaningful highlights"],
+          ["03", "Validate clip context"],
+          ["04", "Render captioned shorts"],
+        ].map(([number, label]) => (
+          <div key={number} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+            <span className="font-mono text-xs text-violet-300">{number}</span>
+            <span className="text-xs text-gray-300">{label}</span>
+          </div>
+        ))}
+      </section>
     </div>
   );
 };

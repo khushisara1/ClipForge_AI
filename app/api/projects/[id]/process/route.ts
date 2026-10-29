@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProject } from "@/lib/storage/db";
+import { getJobStatus, getProject } from "@/lib/storage/db";
 import {
   isJobRunning,
   runProcessingPipeline,
@@ -26,6 +26,17 @@ export async function POST(
         message: "Processing job is already active for this project.",
         status: project.status,
       });
+    }
+
+    const previousJob = getJobStatus(id);
+    if (previousJob?.retryAfterAt && Date.parse(previousJob.retryAfterAt) > Date.now()) {
+      const retryAfterSeconds = Math.ceil((Date.parse(previousJob.retryAfterAt) - Date.now()) / 1000);
+      return NextResponse.json({
+        error: "Groq is cooling down after a token rate limit. Please retry when the countdown ends.",
+        retryAfterAt: previousJob.retryAfterAt,
+        errorCategory: previousJob.errorCategory,
+        errorModel: previousJob.errorModel,
+      }, { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } });
     }
 
     // Trigger in background

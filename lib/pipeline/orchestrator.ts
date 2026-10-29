@@ -12,7 +12,7 @@ import { probeMedia } from "../ffmpeg/probe";
 import { extractAudio } from "../ffmpeg/audio";
 import { renderClip } from "../ffmpeg/render";
 import { isGroqConfigured, transcribeAudio } from "../ai/groq";
-import { detectHighlights } from "../ai/highlights";
+import { detectHighlights, GroqRateLimitError } from "../ai/highlights";
 import { Clip, JobStep, Project } from "@/types";
 
 const runningJobs = new Set<string>();
@@ -109,12 +109,6 @@ export async function runProcessingPipeline(projectId: string): Promise<void> {
         updatedProject.duration || probe.duration
       );
 
-      if (suggestions.length === 0) {
-        throw new Error(
-          "AI did not identify any viable highlights. Try adjusting clip duration or provide longer content."
-        );
-      }
-
       for (const item of suggestions) {
         const clipId = randomUUID();
         const newClip: Clip = {
@@ -128,6 +122,17 @@ export async function runProcessingPipeline(projectId: string): Promise<void> {
           transcriptExcerpt: item.transcriptExcerpt,
           hook: item.hook,
           engagementScore: item.engagementScore,
+          mainIdea: item.mainIdea,
+          payoff: item.payoff,
+          qualityScore: item.qualityScore,
+          contextComplete: item.contextComplete,
+          openingStrength: item.openingStrength,
+          standaloneClarity: item.standaloneClarity,
+          contentValue: item.contentValue,
+          narrativeCompleteness: item.narrativeCompleteness,
+          naturalEnding: item.naturalEnding,
+          audioClarity: item.audioClarity,
+          rankingScore: item.rankingScore,
           status: "suggested",
           aspectRatio: "9:16",
           captionStyle: {
@@ -154,7 +159,14 @@ export async function runProcessingPipeline(projectId: string): Promise<void> {
     }
 
     // ---------------- STAGE 5: RENDER INITIAL CLIPS ----------------
-    updateProgress(projectId, "render", 80, `Rendering ${clips.length} vertical 9:16 clips with animated captions...`);
+    updateProgress(
+      projectId,
+      "render",
+      80,
+      clips.length > 0
+        ? `Rendering ${clips.length} quality-selected vertical 9:16 clips with captions...`
+        : "No complete highlights passed quality checks; finishing without generating clips."
+    );
     saveProject({ ...updatedProject, status: "rendering" });
 
     let renderedCount = 0;
@@ -192,7 +204,14 @@ export async function runProcessingPipeline(projectId: string): Promise<void> {
     }
 
     // ---------------- STAGE 6: READY ----------------
-    updateProgress(projectId, "ready", 100, "Processing complete! All clips are ready to preview and download.");
+    updateProgress(
+      projectId,
+      "ready",
+      100,
+      clips.length > 0
+        ? "Processing complete! All quality-selected clips are ready to preview and download."
+        : "Processing complete. No complete standalone highlights met the current quality checks."
+    );
     saveProject({
       ...updatedProject,
       status: "ready",
@@ -200,7 +219,7 @@ export async function runProcessingPipeline(projectId: string): Promise<void> {
       errorMessage: undefined,
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
+    const errorMsg = err instanceof Error ? err.message : "Processing failed. Please retry.";
     console.error(`Pipeline failure for project ${projectId}:`, errorMsg);
 
     const project = getProject(projectId);
@@ -213,6 +232,22 @@ export async function runProcessingPipeline(projectId: string): Promise<void> {
     }
 
     updateProgress(projectId, "error", 0, "Processing failed", undefined, errorMsg);
+    if (err instanceof GroqRateLimitError) {
+      updateJobStatus({
+        projectId,
+        step: "error",
+        progress: 0,
+        message: "AI Processing Temporarily Paused",
+        error: errorMsg,
+        errorCategory: err.category,
+        errorModel: err.model,
+        retryAfterAt: err.retryAfterMs === undefined
+          ? undefined
+          : new Date(Date.now() + err.retryAfterMs).toISOString(),
+        updatedAt: new Date().toISOString(),
+        completed: true,
+      });
+    }
   } finally {
     runningJobs.delete(projectId);
   }

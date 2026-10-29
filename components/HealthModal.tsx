@@ -18,9 +18,14 @@ interface HealthData {
     note: string;
   };
   storage: {
-    dataDir: string;
+    mode: string;
     writable: boolean;
     maxUploadMb: number;
+  };
+  processing?: {
+    concurrency: number;
+    maxRetries: number;
+    estimatedTokenBudgetPerMinute: number;
   };
 }
 
@@ -98,16 +103,17 @@ export const HealthModal: React.FC<HealthModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-      <div className="relative w-full max-w-xl rounded-2xl border border-white/10 bg-[#12161f] p-6 shadow-2xl text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="diagnostics-title" className="relative w-full max-w-2xl rounded-2xl border border-white/10 bg-[#12161f] p-4 text-white shadow-2xl sm:p-6">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-white/10">
           <div className="flex items-center gap-2.5">
             <Cpu className="h-5 w-5 text-violet-400" />
-            <h2 className="text-lg font-semibold">System Diagnostics & AI Settings</h2>
+            <h2 id="diagnostics-title" className="text-lg font-semibold">System Diagnostics & AI Settings</h2>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close diagnostics"
             className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition-colors"
           >
             <X className="h-5 w-5" />
@@ -160,8 +166,9 @@ export const HealthModal: React.FC<HealthModalProps> = ({
                 <div>
                   <h3 className="text-sm font-semibold">Groq AI Speech & Highlights</h3>
                   <p className="text-xs text-gray-400">
-                    Whisper ({data?.ai.transcriptionModel}) & Llama ({data?.ai.highlightModel})
+                    Whisper ({data?.ai.transcriptionModel}) & Groq LLM ({data?.ai.highlightModel})
                   </p>
+                  <p className="mt-1 text-[11px] text-gray-500">{data?.ai.groqConfigured ? "API key configured; live connectivity is checked when processing starts." : "Add a Groq API key to enable transcription and highlight detection."}</p>
                 </div>
               </div>
               <span
@@ -223,13 +230,27 @@ export const HealthModal: React.FC<HealthModalProps> = ({
                 <div>
                   <h3 className="text-sm font-semibold">Local Storage & Uploads</h3>
                   <p className="text-xs text-gray-400">
-                    Max size: {data?.storage.maxUploadMb || 500}MB &middot; Directory: {data?.storage.dataDir}
+                Local JSON project storage &middot; Max upload: {data?.storage.maxUploadMb || 500}MB
                   </p>
                 </div>
               </div>
-              <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
-                ACTIVE
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${data?.storage.writable ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
+                {data?.storage.writable ? "WRITABLE" : "UNAVAILABLE"}
               </span>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+            <div className="flex items-start gap-3">
+              <RefreshCw className="mt-1 h-4 w-4 text-violet-400" />
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-semibold">Processing and rate limits</h3>
+                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
+                  <div><dt className="text-gray-500">AI concurrency</dt><dd className="mt-1 text-gray-200">{data?.processing?.concurrency ?? 1} request(s)</dd></div>
+                  <div><dt className="text-gray-500">429 retries</dt><dd className="mt-1 text-gray-200">Up to {data?.processing?.maxRetries ?? 2}</dd></div>
+                  <div><dt className="text-gray-500">Token budget</dt><dd className="mt-1 text-gray-200">~{(data?.processing?.estimatedTokenBudgetPerMinute ?? 7000).toLocaleString()}/min</dd></div>
+                </dl>
+              </div>
             </div>
           </div>
         </div>

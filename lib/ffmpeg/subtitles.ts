@@ -44,6 +44,114 @@ export interface SubtitleEvent {
   text: string;
 }
 
+function joinTimedWords(words: Array<{ word: string }>): string {
+  let result = "";
+
+  for (const entry of words) {
+    const token = entry.word.trim();
+    if (!token) continue;
+
+    if (!result) {
+      result = token;
+    } else if (/^[.,!?;:%)}\]]/.test(token) || /[(\[{“‘]$/.test(result)) {
+      result += token;
+    } else {
+      result += ` ${token}`;
+    }
+  }
+
+  return result.replace(/\s+/g, " ").trim();
+}
+
+function comparableCaptionText(value: string): string {
+  return value.toLocaleLowerCase().match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu)?.join(" ") ?? "";
+}
+
+function transcriptTextForRange(
+  segments: TranscriptSegment[],
+  clipStart: number,
+  clipEnd: number
+): string {
+  return segments
+    .filter((segment) => segment.end > clipStart && segment.start < clipEnd)
+    .map((segment) => {
+      if (segment.words?.length) {
+        const words = segment.words.filter(
+          (word) => word.start >= clipStart - 0.03 && word.end <= clipEnd + 0.03
+        );
+        return words.length > 0 ? joinTimedWords(words) : "";
+      }
+      return segment.start >= clipStart - 0.03 && segment.end <= clipEnd + 0.03
+        ? segment.text.trim()
+        : "";
+    })
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildWordTimedEvents(
+  segments: TranscriptSegment[],
+  clipStart: number,
+  clipEnd: number
+): SubtitleEvent[] {
+  const events: SubtitleEvent[] = [];
+  const clipDuration = clipEnd - clipStart;
+
+  for (const segment of segments) {
+    if (segment.end <= clipStart || segment.start >= clipEnd) continue;
+
+    if (!segment.words?.length) {
+      if (
+        segment.start >= clipStart - 0.03 &&
+        segment.end <= clipEnd + 0.03 &&
+        segment.text.trim()
+      ) {
+        events.push({
+          start: Math.max(0, segment.start - clipStart),
+          end: Math.min(clipDuration, segment.end - clipStart),
+          text: segment.text.trim(),
+        });
+      }
+      continue;
+    }
+
+    const words = segment.words
+      .filter(
+        (word) =>
+          word.start >= clipStart - 0.03 &&
+          word.end <= clipEnd + 0.03 &&
+          word.end > word.start
+      )
+      .sort((a, b) => a.start - b.start);
+
+    let group: typeof words = [];
+    const flush = () => {
+      if (group.length === 0) return;
+      events.push({
+        start: Math.max(0, group[0].start - clipStart),
+        end: Math.min(clipDuration, group[group.length - 1].end - clipStart),
+        text: joinTimedWords(group),
+      });
+      group = [];
+    };
+
+    for (const word of words) {
+      const previous = group[group.length - 1];
+      const punctuationEnded = previous && /[.!?…][”’\")\]]?$/.test(previous.word.trim());
+      const longPause = previous && word.start - previous.end > 0.8;
+      if (group.length >= 6 || punctuationEnded || longPause) flush();
+      group.push(word);
+    }
+    flush();
+  }
+
+  return events
+    .filter((event) => event.end > event.start && event.text.length > 0)
+    .sort((a, b) => a.start - b.start);
+}
+
 /**
  * Builds subtitle dialogue events either from matching transcript segments
  * or splits edited captionText into readable timed phrases.
@@ -57,29 +165,28 @@ export function buildSubtitleEvents(
   const clipDuration = clipEnd - clipStart;
   const events: SubtitleEvent[] = [];
 
-  // 1. If we have segments overlapping the clip range, use their exact timestamps
+  // Prefer transcript timestamps only when the displayed text still matches the transcript.
+  // Edited caption text uses the timed fallback below so edits are not silently ignored.
   if (transcriptSegments && transcriptSegments.length > 0) {
     const overlapping = transcriptSegments.filter(
       (s) => s.end > clipStart && s.start < clipEnd
     );
+    const transcriptText = transcriptTextForRange(
+      overlapping,
+      clipStart,
+      clipEnd
+    );
+    const sameAsTranscript =
+      comparableCaptionText(fallbackText) === comparableCaptionText(transcriptText);
 
-    if (overlapping.length > 0) {
-      for (const seg of overlapping) {
-        const relStart = Math.max(0, seg.start - clipStart);
-        const relEnd = Math.min(clipDuration, seg.end - clipStart);
-        if (relEnd > relStart && seg.text.trim()) {
-          events.push({
-            start: relStart,
-            end: relEnd,
-            text: seg.text.trim(),
-          });
-        }
-      }
+    if (overlapping.length > 0 && sameAsTranscript) {
+      events.push(...buildWordTimedEvents(overlapping, clipStart, clipEnd));
+      if (events.length > 0) return events;
     }
   }
 
-  // 2. If no overlapping segments or events is empty, divide fallbackText into rhythmic chunks
-  if (events.length === 0 && fallbackText.trim()) {
+  // Divide edited or otherwise unmatched caption text into readable timed phrases.
+  if (fallbackText.trim()) {
     const words = fallbackText.trim().split(/\s+/);
     const wordsPerChunk = 5;
     const chunks: string[] = [];

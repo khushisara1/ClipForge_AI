@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Project } from "@/types";
 import {
   Plus,
@@ -13,11 +13,16 @@ import {
   CheckCircle2,
   Loader2,
   FileVideo,
+  Search,
+  ArrowDownUp,
+  Sparkles,
+  Activity,
 } from "lucide-react";
 
 interface DashboardViewProps {
   projects: Project[];
   loading: boolean;
+  error?: string | null;
   onSelectProject: (projectId: string) => void;
   onNewUpload: () => void;
   onDeleteProject: (projectId: string) => void;
@@ -79,12 +84,38 @@ function getStatusBadge(status: Project["status"]) {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   projects,
   loading,
+  error,
   onSelectProject,
   onNewUpload,
   onDeleteProject,
   onRefresh,
 }) => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortBy, setSortBy] = useState<"recent" | "oldest" | "name">("recent");
+
+  const visibleProjects = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return projects
+      .filter((project) => {
+        const matchesQuery = !query || `${project.name} ${project.originalFilename}`.toLowerCase().includes(query);
+        const matchesStatus = statusFilter === "all" ||
+          (statusFilter === "processing"
+            ? !["ready", "error", "uploaded"].includes(project.status)
+            : project.status === statusFilter);
+        return matchesQuery && matchesStatus;
+      })
+      .sort((a, b) => sortBy === "name"
+        ? a.name.localeCompare(b.name)
+        : sortBy === "oldest"
+          ? Date.parse(a.createdAt) - Date.parse(b.createdAt)
+          : Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  }, [projects, search, statusFilter, sortBy]);
+
+  const generatedClips = projects.reduce((total, project) => total + (project.clipCount || 0), 0);
+  const processedProjects = projects.filter((project) => project.status === "ready").length;
+  const recentProject = projects.slice().sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
 
   const handleDelete = (id: string, name: string) => {
     if (confirm(`Are you sure you want to delete "${name}" and all generated clips?`)) {
@@ -126,6 +157,56 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
+      <section aria-label="Workspace overview" className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: "Projects", value: projects.length, icon: FileVideo },
+          { label: "Clips generated", value: generatedClips, icon: Sparkles },
+          { label: "Videos processed", value: processedProjects, icon: CheckCircle2 },
+          { label: "Recent activity", value: recentProject ? formatDate(recentProject.updatedAt) : "—", icon: Activity },
+        ].map(({ label, value, icon: Icon }) => (
+          <div key={label} className="rounded-2xl border border-white/10 bg-[#12161f] p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-2 text-xs text-gray-400">
+              <span>{label}</span><Icon aria-hidden="true" className="h-4 w-4 text-violet-400" />
+            </div>
+            <p className="mt-3 truncate text-xl font-semibold text-white sm:text-2xl">{value}</p>
+          </div>
+        ))}
+      </section>
+
+      {projects.length > 0 && (
+        <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+          <label className="relative min-w-0 flex-1">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+            <input aria-label="Search projects" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search projects or filenames" className="w-full rounded-xl border border-white/10 bg-[#12161f] py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-gray-500" />
+          </label>
+          <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#12161f] px-3 text-gray-400">
+            <Activity aria-hidden="true" className="h-4 w-4" />
+            <select aria-label="Filter by processing status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="bg-transparent py-2.5 text-sm text-white focus:outline-none">
+              <option value="all" className="bg-[#12161f]">All statuses</option>
+              <option value="ready" className="bg-[#12161f]">Ready</option>
+              <option value="processing" className="bg-[#12161f]">Processing</option>
+              <option value="uploaded" className="bg-[#12161f]">Uploaded</option>
+              <option value="error" className="bg-[#12161f]">Failed</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#12161f] px-3 text-gray-400">
+            <ArrowDownUp aria-hidden="true" className="h-4 w-4" />
+            <select aria-label="Sort projects" value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)} className="bg-transparent py-2.5 text-sm text-white focus:outline-none">
+              <option value="recent" className="bg-[#12161f]">Newest first</option>
+              <option value="oldest" className="bg-[#12161f]">Oldest first</option>
+              <option value="name" className="bg-[#12161f]">Name A–Z</option>
+            </select>
+          </label>
+        </div>
+      )}
+
+      {error && (
+        <div role="alert" className="mt-6 flex flex-col gap-3 rounded-xl border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200 sm:flex-row sm:items-center sm:justify-between">
+          <span>{error}</span>
+          <button onClick={onRefresh} className="shrink-0 rounded-lg border border-red-300/20 px-3 py-2 text-xs font-semibold hover:bg-red-500/10">Try again</button>
+        </div>
+      )}
+
       {/* Loading Skeleton */}
       {loading && projects.length === 0 && (
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -159,19 +240,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       )}
 
       {/* Project Cards Grid */}
-      {projects.length > 0 && (
+      {projects.length > 0 && visibleProjects.length === 0 && (
+        <div className="mt-8 rounded-2xl border border-white/10 bg-[#12161f] p-10 text-center text-sm text-gray-400">No projects match those filters.</div>
+      )}
+
+      {visibleProjects.length > 0 && (
         <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {projects.map((project) => (
+          {visibleProjects.map((project) => (
             <div
               key={project.id}
               className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-white/10 bg-[#12161f] p-5 hover:border-violet-500/40 hover:bg-[#151a24] transition-all shadow-lg"
             >
               <div>
+                <div className="relative mb-4 aspect-video overflow-hidden rounded-xl border border-white/10 bg-black/40">
+                  <video
+                    aria-label={`Preview of ${project.name}`}
+                    src={`/api/media/uploads/${encodeURIComponent(project.originalPath.split(/[\\/]/).pop() || "")}`}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className="h-full w-full object-cover"
+                    onLoadedData={(event) => { event.currentTarget.currentTime = 0.1; }}
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                      const fallback = event.currentTarget.parentElement?.querySelector<HTMLElement>("[data-preview-fallback]");
+                      if (fallback) fallback.hidden = false;
+                    }}
+                  />
+                  <div data-preview-fallback hidden className="pointer-events-none absolute inset-0 flex items-center justify-center text-gray-600"><FileVideo className="h-8 w-8" /></div>
+                </div>
+
                 {/* Header status */}
                 <div className="flex items-center justify-between">
                   {getStatusBadge(project.status)}
                   <span className="text-[11px] text-gray-500">
-                    {(project.fileSize / (1024 * 1024)).toFixed(1)} MB
+                  {(project.fileSize / (1024 * 1024)).toFixed(1)} MB
                   </span>
                 </div>
 

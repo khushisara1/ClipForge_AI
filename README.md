@@ -38,8 +38,9 @@ ClipForge AI is a full-stack, production-quality web application that transforms
 - **Chunked Video Upload**: Stream MP4, MOV, WebM, and MKV files up to 500MB directly to disk using `busboy` to avoid buffering heavy files in memory.
 - **Deep Media Inspection**: Inspect containers, video/audio streams, sample rates, and durations using bundled static `FFprobe`.
 - **Whisper Speech-to-Text**: Automatically transcribes speech with segment timestamps via Groq's high-speed Whisper API (`whisper-large-v3` / `whisper-large-v3-turbo`). Audio exceeding Groq's 25MB threshold is automatically split and reassembled with accurate timestamp offsets.
-- **AI Moment Extraction**: Groq LLM (`llama-3.3-70b-versatile` or `llama-3.1-8b-instant`) evaluates transcript narrative arcs, comedic timing, punchy hooks, and actionable advice to extract 3–10 standalone clips.
-- **Strict Timestamp Validation**: Clamps clip boundaries, guarantees minimum and maximum durations (15s–90s), and deduplicates overlapping segments using Zod runtime schemas.
+- **Context-Aware AI Moment Extraction**: Groq LLM analyzes the timestamped transcript for complete stories, advice, explanations, question-and-answer moments, and problem-solution arcs. It returns structured editorial assessments for context, opening strength, standalone clarity, value, completeness, and endings. Candidates are checked against transcript boundaries, and incomplete moments can be re-reviewed with surrounding context.
+- **Quality-Based Clip Selection**: Ranks publishable candidates by configurable editorial weights, transcript clarity where Whisper confidence metadata is available, and redundancy. It returns fewer clips when fewer moments pass quality checks instead of filling a fixed quota.
+- **Transcript-Aligned Timing**: Snaps proposed boundaries to actual transcript or word timestamps, enforces configurable duration limits, and uses word-level timing for synchronized captions when available.
 - **9:16 Vertical Video Engine**: Converts landscape podcast footage into vertical videos using a layered blurred-background composition that keeps speakers centered without cutting off content or stretching pixels.
 - **Burned-In Subtitles (ASS/SRT)**: Custom styled captions with customizable font size, screen position (bottom, center, top), and vibrant color schemes (white bold, yellow highlight, cyan).
 - **Persistent Data Store**: Atomic JSON database persists projects, transcripts, clips, and real-time job progression across server reboots.
@@ -57,6 +58,26 @@ ClipForge AI is a full-stack, production-quality web application that transforms
 - **Upload Parser**: `busboy` streaming multipart parser
 - **Speech-to-Text**: Groq Cloud Audio API (`whisper-large-v3`)
 - **LLM Reasoning**: Groq Cloud Chat Completions API (`llama-3.3-70b-versatile`)
+
+### Highlight Quality Configuration
+
+The pipeline reads these optional server environment variables; defaults are shown in parentheses:
+
+- `MIN_CLIP_DURATION_SECONDS` (15), `MAX_CLIP_DURATION_SECONDS` (90), and `TARGET_CLIP_COUNT` (5).
+- `HIGHLIGHT_MIN_QUALITY` (55), `HIGHLIGHT_MIN_OPENING_STRENGTH` (60), `HIGHLIGHT_MIN_STANDALONE_CLARITY` (65), `HIGHLIGHT_MIN_CONTENT_VALUE` (50), `HIGHLIGHT_MIN_NARRATIVE_COMPLETENESS` (65), and `HIGHLIGHT_MIN_NATURAL_ENDING` (60).
+- Ranking weights: `HIGHLIGHT_WEIGHT_HOOK_STRENGTH` (0.20), `HIGHLIGHT_WEIGHT_STANDALONE_CLARITY` (0.20), `HIGHLIGHT_WEIGHT_CONTENT_VALUE` (0.18), `HIGHLIGHT_WEIGHT_NARRATIVE_COMPLETENESS` (0.18), `HIGHLIGHT_WEIGHT_NATURAL_ENDING` (0.14), `HIGHLIGHT_WEIGHT_QUALITY_SCORE` (0.10), `HIGHLIGHT_WEIGHT_AUDIO_CLARITY` (0.10), and `HIGHLIGHT_WEIGHT_REDUNDANCY` (0.22).
+
+### Groq Rate-Limit Configuration
+
+Long transcripts are sent in timestamped, overlapping windows rather than as one full prompt. Each request has a bounded completion, requests are queued, and 429 responses retry a limited number of times using Groq's retry headers where provided. The in-process rolling token estimate avoids sending a burst past the configured budget; it is a conservative estimate, not provider-side accounting. Configure these server-side values to match the selected model and Groq account:
+
+- `GROQ_TOKENS_PER_MINUTE` (7000), `GROQ_MAX_CONCURRENT_REQUESTS` (1), and `GROQ_429_MAX_RETRIES` (2).
+- `HIGHLIGHT_MAX_COMPLETION_TOKENS` (900).
+- `HIGHLIGHT_CHUNK_MAX_CHARACTERS` (9000), `HIGHLIGHT_CHUNK_MAX_SEGMENTS` (140), `HIGHLIGHT_CHUNK_MAX_SECONDS` (300), and `HIGHLIGHT_CHUNK_OVERLAP_SECONDS` (60).
+
+For an 8,000 TPM model, the 7,000 default leaves headroom. If the chosen model or account has a lower quota, lower the token budget and chunk character limit. The retry cooldown is retained on the project; users can retry without re-uploading, and existing transcripts/clips are reused.
+
+Model scores are editorial estimates, not probabilities. Whisper confidence is used only as a clarity proxy when the transcription response provides the needed metadata.
 
 ---
 
@@ -102,7 +123,7 @@ DATA_DIR=./data
 
 ### 3. Run Automated Tests
 
-Execute the 22-point end-to-end automated pipeline and security test suite:
+Execute the automated pipeline and security suite (including mocked Groq rate-limit and response-validation checks):
 
 ```bash
 npm test
@@ -145,14 +166,7 @@ npm run start
    - Drag and drop any MP4, MOV, or WebM recording (up to 500MB).
    - Watch the live byte-level progress bar.
 2. **Automated AI Pipeline**:
-   - Watch the 7-stage progress stepper:
-     1. Media Uploaded
-     2. Validating Media & Codecs (FFprobe)
-     3. Extracting Speech Audio (FFmpeg 16kHz MP3)
-     4. Transcribing Speech (Groq Whisper)
-     5. Analyzing Highlights (Groq Llama 3.3)
-     6. Rendering 9:16 Vertical Clips with Subtitles (FFmpeg)
-     7. Ready to Preview
+   - Follow the actual pipeline stages: preparing media, checking codecs, extracting audio, transcribing speech, finding and validating highlights, rendering clips and captions, and preparing downloads.
 3. **Clips Studio**:
    - Preview each generated vertical clip in the responsive 9:16 player.
    - Adjust the clip title.

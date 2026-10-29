@@ -38,6 +38,8 @@ export interface TranscriptSegment {
   end: number;
   text: string;
   words?: TranscriptWord[];
+  /** Optional Whisper confidence proxy; absent when the transcription API omits it. */
+  audioClarity?: number;
 }
 
 export interface Transcript {
@@ -71,7 +73,19 @@ export interface Clip {
   reason: string;
   transcriptExcerpt: string;
   hook?: string;
-  engagementScore: number; // Heuristic metric (1-100)
+  engagementScore: number; // Editorial quality estimate (1-100), not a probability
+  /** AI-generated editorial assessments, not probabilities or guarantees. */
+  mainIdea?: string;
+  payoff?: string;
+  qualityScore?: number;
+  contextComplete?: boolean;
+  openingStrength?: number;
+  standaloneClarity?: number;
+  contentValue?: number;
+  narrativeCompleteness?: number;
+  naturalEnding?: number;
+  audioClarity?: number;
+  rankingScore?: number;
   status: ClipStatus;
   videoPath?: string;
   videoUrl?: string;
@@ -101,6 +115,9 @@ export interface JobStatus {
   message: string;
   details?: string;
   error?: string;
+  errorCategory?: string;
+  errorModel?: string;
+  retryAfterAt?: string;
   updatedAt: string;
   completed: boolean;
 }
@@ -111,6 +128,17 @@ export interface HighlightSuggestion {
   endTime: number;
   reason: string;
   transcriptExcerpt: string;
-  hook?: string;
+  hook: string;
   engagementScore: number;
+  mainIdea: string;
+  payoff: string;
+  qualityScore: number;
+  contextComplete: boolean;
+  openingStrength: number;
+  standaloneClarity: number;
+  contentValue: number;
+  narrativeCompleteness: number;
+  naturalEnding: number;
+  audioClarity?: number;
+  rankingScore: number;
 }

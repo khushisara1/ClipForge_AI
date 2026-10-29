@@ -263,21 +263,23 @@ export const ClipEditorView: React.FC<ClipEditorViewProps> = ({
         </div>
       ) : (
         /* Clips Studio View */
-        <div className="mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-12 lg:items-start">
           {/* Left: Clips List Sidebar */}
-          <div className="lg:col-span-4 space-y-3">
+          <div className="space-y-3 lg:col-span-3">
             <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 px-1">
               Select A Clip ({clips.length})
             </h2>
 
-            <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1">
+            <div className="space-y-3 lg:max-h-[calc(100vh-230px)] lg:overflow-y-auto lg:pr-1">
               {clips.map((clip) => {
                 const isSelected = clip.id === activeClip?.id;
                 return (
-                  <div
+                  <button
                     key={clip.id}
+                    type="button"
                     onClick={() => selectClip(clip)}
-                    className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+                    aria-pressed={isSelected}
+                    className={`w-full cursor-pointer rounded-2xl border p-4 text-left transition-all ${
                       isSelected
                         ? "border-violet-500 bg-violet-600/10 shadow-lg shadow-violet-500/10"
                         : "border-white/10 bg-[#12161f] hover:border-white/20 hover:bg-[#151a24]"
@@ -288,12 +290,12 @@ export const ClipEditorView: React.FC<ClipEditorViewProps> = ({
                         {clip.title}
                       </h3>
                       <span className="shrink-0 rounded-full bg-violet-500/20 px-2 py-0.5 text-[10px] font-bold text-violet-300">
-                        Score: {clip.engagementScore}
+                        {clip.qualityScore ?? clip.engagementScore} / 100
                       </span>
                     </div>
 
-                    <p className="mt-2 text-xs text-gray-400 line-clamp-2 italic">
-                      &quot;{clip.transcriptExcerpt}&quot;
+                    <p className="mt-2 text-xs text-gray-300 line-clamp-2">
+                      {clip.hook || clip.transcriptExcerpt}
                     </p>
 
                     <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-2 text-[11px] text-gray-400">
@@ -315,17 +317,17 @@ export const ClipEditorView: React.FC<ClipEditorViewProps> = ({
                         )}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           </div>
 
           {/* Center: Live Vertical Video Player */}
-          <div className="lg:col-span-4 flex flex-col items-center">
+          <div className="flex flex-col items-center lg:col-span-5">
             {activeClip ? (
-              <div className="w-full max-w-[280px] space-y-4">
-                <div className="relative aspect-[9/16] w-full overflow-hidden rounded-3xl border border-white/20 bg-black shadow-2xl">
+              <div className={`w-full ${selectedRatio === "16:9" ? "max-w-2xl" : selectedRatio === "1:1" ? "max-w-lg" : "max-w-sm"} space-y-4`}>
+                <div style={{ aspectRatio: selectedRatio.replace(":", " / ") }} className="relative w-full overflow-hidden rounded-3xl border border-white/20 bg-black shadow-2xl">
                   {/* Real Video Element */}
                   <video
                     ref={videoRef}
@@ -334,6 +336,26 @@ export const ClipEditorView: React.FC<ClipEditorViewProps> = ({
                     playsInline
                     className="h-full w-full object-cover"
                   />
+                </div>
+
+                <div className="w-full rounded-2xl border border-white/10 bg-[#12161f] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-300">Why this moment</p>
+                      <h3 className="mt-1 text-sm font-semibold text-white">{activeClip.title}</h3>
+                    </div>
+                    <span className="shrink-0 rounded-lg border border-violet-500/20 bg-violet-500/10 px-2 py-1 text-[10px] text-violet-200">
+                      {activeClip.qualityScore ?? activeClip.engagementScore} / 100 estimate
+                    </span>
+                  </div>
+                  {activeClip.hook && <p className="mt-3 text-xs text-gray-200"><span className="text-gray-500">Opening · </span>{activeClip.hook}</p>}
+                  {activeClip.mainIdea && <p className="mt-2 text-xs leading-relaxed text-gray-400"><span className="text-gray-500">Main idea · </span>{activeClip.mainIdea}</p>}
+                  {activeClip.payoff && <p className="mt-2 text-xs leading-relaxed text-gray-400"><span className="text-gray-500">Payoff · </span>{activeClip.payoff}</p>}
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-gray-400">
+                    <span className="rounded-full border border-white/10 px-2 py-1">{activeClip.duration}s</span>
+                    {activeClip.contextComplete === true ? <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-emerald-300">Complete thought</span> : activeClip.contextComplete === false ? <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-amber-200">Context needs review</span> : <span className="rounded-full border border-white/10 px-2 py-1">Completeness not scored</span>}
+                    {activeClip.reason && <span className="max-w-full truncate">{activeClip.reason}</span>}
+                  </div>
                 </div>
 
                 {/* Direct Download Button */}
@@ -427,6 +449,21 @@ export const ClipEditorView: React.FC<ClipEditorViewProps> = ({
                 </div>
 
                 {/* Caption Position & Style */}
+                <div>
+                  <label className="block font-medium text-gray-300">Caption presets</label>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {[
+                      { name: "Bold", size: 40, color: "#FFFFFF" },
+                      { name: "Warm", size: 34, color: "#FACC15" },
+                      { name: "Minimal", size: 26, color: "#FFFFFF" },
+                    ].map((preset) => (
+                      <button key={preset.name} type="button" onClick={() => { setSelectedFontSize(preset.size); setSelectedColor(preset.color); setSelectedPosition("bottom"); }} className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-[11px] text-gray-300 hover:border-violet-500/50 hover:text-white">
+                        {preset.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-medium text-gray-300">

@@ -30,6 +30,8 @@ interface GroqWhisperSegment {
   end: number;
   text: string;
   words?: Array<{ word: string; start: number; end: number }>;
+  avg_logprob?: number;
+  no_speech_prob?: number;
 }
 
 interface GroqWhisperResponse {
@@ -117,12 +119,29 @@ export async function transcribeAudio(
       for (const seg of data.segments) {
         const adjustedStart = Math.round((seg.start + offsetSeconds) * 100) / 100;
         const adjustedEnd = Math.round((seg.end + offsetSeconds) * 100) / 100;
+        const confidence =
+          typeof seg.avg_logprob === "number"
+            ? Math.exp(Math.min(0, seg.avg_logprob)) * 100
+            : undefined;
+        const speechProbability =
+          typeof seg.no_speech_prob === "number"
+            ? Math.min(1, Math.max(0, seg.no_speech_prob))
+            : undefined;
+        const audioClarity =
+          confidence !== undefined
+            ? Math.round(
+                confidence * (speechProbability === undefined ? 1 : 1 - speechProbability)
+              )
+            : speechProbability === undefined
+              ? undefined
+              : Math.round((1 - speechProbability) * 100);
 
         allSegments.push({
           id: segmentCounter++,
           start: adjustedStart,
           end: adjustedEnd,
           text: seg.text.trim(),
+          ...(audioClarity !== undefined && { audioClarity }),
           words: seg.words?.map((w) => ({
             word: w.word,
             start: Math.round((w.start + offsetSeconds) * 100) / 100,

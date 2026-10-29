@@ -41,9 +41,15 @@ export async function GET() {
         : "GROQ_API_KEY is not set. Add it in .env.local to enable speech-to-text and AI highlights.",
     },
     storage: {
-      dataDir: DIRS.data,
+      mode: "local-json",
       writable: storageWritable,
       maxUploadMb: parseInt(process.env.MAX_UPLOAD_MB || "500", 10),
+    },
+    processing: {
+      concurrency: Math.max(1, parseInt(process.env.GROQ_MAX_CONCURRENT_REQUESTS || "1", 10) || 1),
+      maxRetries: Math.max(0, parseInt(process.env.GROQ_429_MAX_RETRIES || "2", 10) || 0),
+      estimatedTokenBudgetPerMinute: Math.max(1000, parseInt(process.env.GROQ_TOKENS_PER_MINUTE || "7000", 10) || 7000),
+      activeJobs: null,
     },
   });
 }

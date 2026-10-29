@@ -33,6 +33,7 @@ function PodcastApp() {
   );
   const [projects, setProjects] = useState<Project[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
   const [isGroqConfigured, setIsGroqConfigured] = useState(false);
   const [isHealthModalOpen, setIsHealthModalOpen] = useState(false);
 
@@ -72,12 +73,16 @@ function PodcastApp() {
   // Fetch projects list
   const fetchProjects = () => {
     setLoadingProjects(true);
+    setProjectsError(null);
     fetch("/api/projects")
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (!res.ok) throw new Error("Could not load projects from local storage.");
+        return res.json();
+      })
       .then((data) => {
         if (data?.projects) setProjects(data.projects);
       })
-      .catch((err) => console.error("Failed to load projects:", err))
+      .catch(() => setProjectsError("Could not load projects from local storage."))
       .finally(() => setLoadingProjects(false));
   };
 
@@ -93,13 +98,16 @@ function PodcastApp() {
       .catch(() => {});
 
     fetch("/api/projects")
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (!res.ok) throw new Error("Could not load projects from local storage.");
+        return res.json();
+      })
       .then((data) => {
         if (!cancelled && data?.projects) {
           setProjects(data.projects);
         }
       })
-      .catch(() => {});
+      .catch(() => { if (!cancelled) setProjectsError("Could not load projects from local storage."); });
 
     return () => {
       cancelled = true;
@@ -176,6 +184,7 @@ function PodcastApp() {
           <DashboardView
             projects={projects}
             loading={loadingProjects}
+            error={projectsError}
             onSelectProject={handleSelectProject}
             onNewUpload={() => navigateTo("upload")}
             onDeleteProject={handleDeleteProject}
